@@ -2,10 +2,9 @@
 #include "ImGuiLayer.h"
 
 #include "imgui.h"
-#include "examples/imgui_impl_glfw.h"
-#include "examples/imgui_impl_opengl3.h"
 
 #include "Hazel/Application.h"
+#include "ImGuiCommand.h"
 
 // TEMPORARY
 #include <GLFW/glfw3.h>
@@ -47,21 +46,22 @@ namespace Hazel {
 		GLFWwindow* window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());
 
 		// Setup Platform/Renderer bindings
-		ImGui_ImplGlfw_InitForOpenGL(window, true);
-		ImGui_ImplOpenGL3_Init("#version 410");
+		ImGuiCommand::WindowInit(window, true);
+		ImGuiCommand::RendererInit("#version 410");
 	}
 
 	void ImGuiLayer::OnDetach()
 	{
-		ImGui_ImplOpenGL3_Shutdown();
-		ImGui_ImplGlfw_Shutdown();
+		ImGuiCommand::RendererShutdown();
+		ImGuiCommand::WindowShutdown();
 		ImGui::DestroyContext();
 	}
 	
 	void ImGuiLayer::Begin()
 	{
-		ImGui_ImplOpenGL3_NewFrame();
-		ImGui_ImplGlfw_NewFrame();
+		
+		ImGuiCommand::RendererNewFrame();
+		ImGuiCommand::WindowNewFrame();
 		ImGui::NewFrame();
 	}
 
@@ -73,7 +73,7 @@ namespace Hazel {
 
 		// Rendering
 		ImGui::Render();
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+		ImGuiCommand::RendererDrawData(ImGui::GetDrawData());
 
 		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
 		{
