@@ -13,6 +13,10 @@ namespace Hazel {
 		HZ_CORE_ASSERT(windowHandle, "Window handle is null!")
 	}
 
+	OpenGLContext::~OpenGLContext()
+	{
+	}
+
 	void OpenGLContext::Init()
 	{
 		glfwMakeContextCurrent(m_WindowHandle);
@@ -29,6 +33,14 @@ namespace Hazel {
 	void OpenGLContext::SwapBuffers()
 	{
 		glfwSwapBuffers(m_WindowHandle);
+	}
+
+	void OpenGLContext::SetVSync(bool enabled)
+	{
+		if (enabled)
+			glfwSwapInterval(1);
+		else
+			glfwSwapInterval(0);
 	}
 
 }

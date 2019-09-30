@@ -16,6 +16,8 @@ workspace "Hazel"
 
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
+vulkansdkdir = "C:/VulkanSDK/1.1.114.0"
+
 -- Include directories relative to root folder (solution directory)
 IncludeDir = {}
 IncludeDir["GLFW"] = "Hazel/vendor/GLFW/include"
@@ -67,7 +69,8 @@ project "Hazel"
 		"%{IncludeDir.Glad}",
 		"%{IncludeDir.ImGui}",
 		"%{IncludeDir.glm}",
-		"%{IncludeDir.stb_image}"
+		"%{IncludeDir.stb_image}",
+		(vulkansdkdir .. "/Include")
 	}
 
 	links 
@@ -75,7 +78,8 @@ project "Hazel"
 		"GLFW",
 		"Glad",
 		"ImGui",
-		"opengl32.lib"
+		"opengl32.lib",
+		(vulkansdkdir .. "/Lib/vulkan-1.lib")
 	}
 
 	filter "system:windows"

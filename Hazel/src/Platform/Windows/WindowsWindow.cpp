@@ -5,7 +5,8 @@
 #include "Hazel/Events/MouseEvent.h"
 #include "Hazel/Events/KeyEvent.h"
 
-#include "Platform/OpenGL/OpenGLContext.h"
+#include "Hazel/Renderer/Renderer.h"
+
 
 namespace Hazel {
 	
@@ -48,15 +49,25 @@ namespace Hazel {
 			s_GLFWInitialized = true;
 		}
 
+		if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
+		{
+			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+		}
+
 		m_Window = glfwCreateWindow((int)props.Width, (int)props.Height, m_Data.Title.c_str(), nullptr, nullptr);
 
-		m_Context = new OpenGLContext(m_Window);
+		m_Context = GraphicsContext::Create(m_Window);
 		m_Context->Init();
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 		SetVSync(true);
 
 		// Set GLFW callbacks
+
+		glfwSetFramebufferSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
+		{
+		});
+
 		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
 		{
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
@@ -150,21 +161,22 @@ namespace Hazel {
 	void WindowsWindow::Shutdown()
 	{
 		glfwDestroyWindow(m_Window);
+
+		glfwTerminate();
 	}
 
-	void WindowsWindow::OnUpdate()
+	void WindowsWindow::OnUpdate(bool minimized)
 	{
 		glfwPollEvents();
-		m_Context->SwapBuffers();
+		if (!minimized)
+		{
+			m_Context->SwapBuffers();
+		}
 	}
 
 	void WindowsWindow::SetVSync(bool enabled)
 	{
-		if (enabled)
-			glfwSwapInterval(1);
-		else
-			glfwSwapInterval(0);
-
+		m_Context->SetVSync(enabled);
 		m_Data.VSync = enabled;
 	}
 

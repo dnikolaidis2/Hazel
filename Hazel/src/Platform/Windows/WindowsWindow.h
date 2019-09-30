@@ -13,7 +13,7 @@ namespace Hazel {
 		WindowsWindow(const WindowProps& props);
 		virtual ~WindowsWindow();
 
-		void OnUpdate() override;
+		void OnUpdate(bool minimized) override;
 
 		inline unsigned int GetWidth() const override { return m_Data.Width; }
 		inline unsigned int GetHeight() const override { return m_Data.Height; }
@@ -24,12 +24,13 @@ namespace Hazel {
 		bool IsVSync() const override;
 
 		inline virtual void* GetNativeWindow() const { return m_Window; }
+		inline virtual Ref<GraphicsContext> GetNativeContext() const { return m_Context; }
 	private:
 		virtual void Init(const WindowProps& props);
 		virtual void Shutdown();
 	private:
 		GLFWwindow* m_Window;
-		GraphicsContext* m_Context;
+		Ref<GraphicsContext> m_Context;
 
 		struct WindowData
 		{

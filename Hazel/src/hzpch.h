@@ -8,10 +8,15 @@
 
 #include <string>
 #include <sstream>
+#include <fstream>
 #include <array>
 #include <vector>
+#include <optional>
+#include <set>
 #include <unordered_map>
+#include <map>
 #include <unordered_set>
+#include <cstdint>
 
 #include "Hazel/Log.h"
 
