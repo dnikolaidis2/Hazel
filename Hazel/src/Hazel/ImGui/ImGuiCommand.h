@@ -1,7 +1,12 @@
 #pragma once
 
-#include <GLFW/glfw3.h>
 #include "imgui.h"
+
+#include <GLFW/glfw3.h>
+
+struct ImGui_ImplVulkan_InitInfo;
+
+struct VkContext;
 
 namespace Hazel {
 	class ImGuiCommand
@@ -15,6 +20,8 @@ namespace Hazel {
 		static void RendererNewFrame();
 		static void RendererDrawData(ImDrawData* draw_data);
 		static void RendererShutdown();
-			
+	
+	private:
+		static VkContext* g_vkContext;
 	};
 }

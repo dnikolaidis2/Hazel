@@ -20,10 +20,13 @@ namespace Hazel {
 	void Renderer::BeginScene(OrthographicCamera& camera)
 	{
 		s_SceneData->ViewProjectionMatrix = camera.GetViewProjectionMatrix();
+
+		RenderCommand::StartRenderPass();
 	}
 
 	void Renderer::EndScene()
 	{
+		RenderCommand::EndRenderPass();
 	}
 
 	void Renderer::Submit(const std::shared_ptr<Shader>& shader, const std::shared_ptr<VertexArray>& vertexArray, const glm::mat4& transform)

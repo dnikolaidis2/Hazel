@@ -58,6 +58,8 @@ namespace Hazel {
 		void CreateGraphicsPipeline();
 		void CreateFramebuffers();
 		void CreateCommandPool();
+		void CreateVertexBuffer();
+		void CreateIndexBuffer();
 		void CreateCommandBuffers();
 		void CreateSyncObjects();
 		void CleanupSwapChain();
@@ -74,11 +76,14 @@ namespace Hazel {
 		VkPresentModeKHR ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
 		VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
 		VkShaderModule CreateShaderModule(const std::vector<char>& code);
+		uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+		void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+		void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 	private:
 		GLFWwindow* m_WindowHandle;
 		bool m_VSync = true;
 
-		VulkanRendererAPI::VulkanContext* g_VulkanContext = VulkanRendererAPI::GetContext();
+		VkContext* g_vkContext = VulkanRendererAPI::GetContext();
 	};
 
 }

@@ -13,6 +13,9 @@ namespace Hazel {
 		virtual void SetClearColor(const glm::vec4& color) override;
 		virtual void Clear() override;
 
+		virtual void StartRenderPass() override;
+		virtual void EndRenderPass() override;
+
 		virtual void DrawIndexed(const std::shared_ptr<VertexArray>& vertexArray) override;
 	};
 

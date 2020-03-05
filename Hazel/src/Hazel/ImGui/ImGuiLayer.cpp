@@ -4,6 +4,8 @@
 #include "imgui.h"
 
 #include "Hazel/Application.h"
+#include "Hazel/Renderer/RenderCommand.h"
+
 #include "ImGuiCommand.h"
 
 // TEMPORARY

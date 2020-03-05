@@ -19,6 +19,9 @@ namespace Hazel {
 		virtual void SetClearColor(const glm::vec4& color) = 0;
 		virtual void Clear() = 0;
 
+		virtual void StartRenderPass() = 0;
+		virtual void EndRenderPass() = 0;
+
 		virtual void DrawIndexed(const std::shared_ptr<VertexArray>& vertexArray) = 0;
 
 		static Ref<RendererAPI> Create();

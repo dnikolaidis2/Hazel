@@ -5,6 +5,17 @@
 
 namespace Hazel {
 
+	const std::vector<VulkanRendererAPI::Vertex> vertices = {
+		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+		{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+	};
+
+	const std::vector<uint16_t> indices = {
+		0, 1, 2, 2, 3, 0
+	};
+
 	static std::vector<char> readFile(const std::string& filename) {
 		std::ifstream file(filename, std::ios::ate | std::ios::binary);
 		
@@ -37,32 +48,40 @@ namespace Hazel {
 
 	VulkanContext::~VulkanContext()
 	{
-		vkDeviceWaitIdle(g_VulkanContext->Device);
+		vkDeviceWaitIdle(g_vkContext->Device);
+
+		vkDestroyDescriptorPool(g_vkContext->Device, g_vkContext->DescriptorPool, nullptr);
+
+		vkDestroyBuffer(g_vkContext->Device, g_vkContext->IndexBuffer, nullptr);
+		vkFreeMemory(g_vkContext->Device, g_vkContext->IndexBufferMemory, nullptr);
+
+		vkDestroyBuffer(g_vkContext->Device, g_vkContext->VertexBuffer, nullptr);
+		vkFreeMemory(g_vkContext->Device, g_vkContext->VertexBufferMemory, nullptr);
 
 		for (size_t i = 0; i < VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT; i++) {
-			vkDestroySemaphore(g_VulkanContext->Device, g_VulkanContext->RenderFinishedSemaphores[i], nullptr);
-			vkDestroySemaphore(g_VulkanContext->Device, g_VulkanContext->ImageAvailableSemaphores[i], nullptr);
-			vkDestroyFence(g_VulkanContext->Device, g_VulkanContext->InFlightFences[i], nullptr);
+			vkDestroySemaphore(g_vkContext->Device, g_vkContext->RenderFinishedSemaphores[i], nullptr);
+			vkDestroySemaphore(g_vkContext->Device, g_vkContext->ImageAvailableSemaphores[i], nullptr);
+			vkDestroyFence(g_vkContext->Device, g_vkContext->InFlightFences[i], nullptr);
 		}
 
-		vkDestroyCommandPool(g_VulkanContext->Device, g_VulkanContext->CommandPool, nullptr);
+		vkDestroyCommandPool(g_vkContext->Device, g_vkContext->CommandPool, nullptr);
 
-		for (auto framebuffer : g_VulkanContext->SwapChainFramebuffers) {
-			vkDestroyFramebuffer(g_VulkanContext->Device, framebuffer, nullptr);
+		for (auto framebuffer : g_vkContext->SwapChainFramebuffers) {
+			vkDestroyFramebuffer(g_vkContext->Device, framebuffer, nullptr);
 		}
 
-		vkDestroyPipeline(g_VulkanContext->Device, g_VulkanContext->GraphicsPipeline, nullptr);
-		vkDestroyPipelineLayout(g_VulkanContext->Device, g_VulkanContext->PipelineLayout, nullptr);
-		vkDestroyRenderPass(g_VulkanContext->Device, g_VulkanContext->RenderPass, nullptr);
-		for (auto imageView : g_VulkanContext->SwapChainImageViews) {
-			vkDestroyImageView(g_VulkanContext->Device, imageView, nullptr);
+		vkDestroyPipeline(g_vkContext->Device, g_vkContext->GraphicsPipeline, nullptr);
+		vkDestroyPipelineLayout(g_vkContext->Device, g_vkContext->PipelineLayout, nullptr);
+		vkDestroyRenderPass(g_vkContext->Device, g_vkContext->RenderPass, nullptr);
+		for (auto imageView : g_vkContext->SwapChainImageViews) {
+			vkDestroyImageView(g_vkContext->Device, imageView, nullptr);
 		}
 
-		vkDestroySwapchainKHR(g_VulkanContext->Device, g_VulkanContext->SwapChain, nullptr);
-		vkDestroyDevice(g_VulkanContext->Device, nullptr);
-		vkDestroySurfaceKHR(g_VulkanContext->Instance, g_VulkanContext->Surface, nullptr);
-		DestroyDebugUtilsMessengerEXT(g_VulkanContext->Instance, g_VulkanContext->DebugMessenger, nullptr);
-		vkDestroyInstance(g_VulkanContext->Instance, nullptr);
+		vkDestroySwapchainKHR(g_vkContext->Device, g_vkContext->SwapChain, nullptr);
+		vkDestroyDevice(g_vkContext->Device, nullptr);
+		vkDestroySurfaceKHR(g_vkContext->Instance, g_vkContext->Surface, nullptr);
+		DestroyDebugUtilsMessengerEXT(g_vkContext->Instance, g_vkContext->DebugMessenger, nullptr);
+		vkDestroyInstance(g_vkContext->Instance, nullptr);
 	}
 
 	void VulkanContext::Init()
@@ -78,8 +97,34 @@ namespace Hazel {
 		CreateGraphicsPipeline();
 		CreateFramebuffers();
 		CreateCommandPool();
+		CreateVertexBuffer();
+		CreateIndexBuffer();
 		CreateCommandBuffers();
 		CreateSyncObjects();
+		g_vkContext->ResizeCallback = std::bind(&VulkanContext::RecreateSwapChain, this);
+
+		std::vector<VkDescriptorPoolSize> pool_sizes =
+		{
+			{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+		};
+		VkDescriptorPoolCreateInfo pool_info = {};
+		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+		pool_info.maxSets = 1000 * pool_sizes.size();
+		pool_info.poolSizeCount = (uint32_t)pool_sizes.size();
+		pool_info.pPoolSizes = pool_sizes.data();
+		VkResult result = vkCreateDescriptorPool(g_vkContext->Device, &pool_info, nullptr, &g_vkContext->DescriptorPool);
+		HZ_CORE_ASSERT(!result, "Could not create vulkan instance! {0}", result);
 	}
 
 	void VulkanContext::CreateInstance()
@@ -111,7 +156,7 @@ namespace Hazel {
 		PopulateDebugMessengerCreateInfo(debugCreateInfo);
 		createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 
-		VkResult result = vkCreateInstance(&createInfo, nullptr, &g_VulkanContext->Instance);
+		VkResult result = vkCreateInstance(&createInfo, nullptr, &g_vkContext->Instance);
 
 		HZ_CORE_ASSERT(!result, "Could not create vulkan instance! {0}", result);
 	}
@@ -121,37 +166,37 @@ namespace Hazel {
 		VkDebugUtilsMessengerCreateInfoEXT createInfo;
 		PopulateDebugMessengerCreateInfo(createInfo);
 
-		VkResult result = CreateDebugUtilsMessengerEXT(g_VulkanContext->Instance, &createInfo, nullptr, &g_VulkanContext->DebugMessenger);
+		VkResult result = CreateDebugUtilsMessengerEXT(g_vkContext->Instance, &createInfo, nullptr, &g_vkContext->DebugMessenger);
 		HZ_CORE_ASSERT(!result, "Failed to set up debug messenger! {0}", result);
 	}
 
 	void VulkanContext::PickPhysicalDevice()
 	{
 		uint32_t deviceCount = 0;
-		vkEnumeratePhysicalDevices(g_VulkanContext->Instance, &deviceCount, nullptr);
+		vkEnumeratePhysicalDevices(g_vkContext->Instance, &deviceCount, nullptr);
 
 		if (deviceCount == 0) {
 			throw std::runtime_error("failed to find GPUs with Vulkan support!");
 		}
 
 		std::vector<VkPhysicalDevice> devices(deviceCount);
-		vkEnumeratePhysicalDevices(g_VulkanContext->Instance, &deviceCount, devices.data());
+		vkEnumeratePhysicalDevices(g_vkContext->Instance, &deviceCount, devices.data());
 
 		for (const auto& device : devices) {
 			if (IsDeviceSuitable(device)) {
-				g_VulkanContext->PhysicalDevice = device;
+				g_vkContext->PhysicalDevice = device;
 				break;
 			}
 		}
 
-		if (g_VulkanContext->PhysicalDevice == VK_NULL_HANDLE) {
+		if (g_vkContext->PhysicalDevice == VK_NULL_HANDLE) {
 			HZ_CORE_ASSERT(FALSE, "failed to find a suitable GPU!");
 		}
 	}
 
 	void VulkanContext::CreateLogicalDevice()
 	{
-		QueueFamilyIndices indices = FindQueueFamilies(g_VulkanContext->PhysicalDevice);
+		QueueFamilyIndices indices = FindQueueFamilies(g_vkContext->PhysicalDevice);
 
 		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 		std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
@@ -178,22 +223,22 @@ namespace Hazel {
 		createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
 		createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
-		VkResult result = vkCreateDevice(g_VulkanContext->PhysicalDevice, &createInfo, nullptr, &g_VulkanContext->Device);
+		VkResult result = vkCreateDevice(g_vkContext->PhysicalDevice, &createInfo, nullptr, &g_vkContext->Device);
 		HZ_CORE_ASSERT(!result, "Failed to create logical device! {0}", result);
 
-		vkGetDeviceQueue(g_VulkanContext->Device, indices.graphicsFamily.value(), 0, &g_VulkanContext->GraphicsQueue);
-		vkGetDeviceQueue(g_VulkanContext->Device, indices.presentFamily.value(), 0, &g_VulkanContext->PresentQueue);
+		vkGetDeviceQueue(g_vkContext->Device, indices.graphicsFamily.value(), 0, &g_vkContext->GraphicsQueue);
+		vkGetDeviceQueue(g_vkContext->Device, indices.presentFamily.value(), 0, &g_vkContext->PresentQueue);
 	}
 
 	void VulkanContext::CreateSurface()
 	{
-		VkResult result = glfwCreateWindowSurface(g_VulkanContext->Instance, m_WindowHandle, nullptr, &g_VulkanContext->Surface);
+		VkResult result = glfwCreateWindowSurface(g_vkContext->Instance, m_WindowHandle, nullptr, &g_vkContext->Surface);
 		HZ_CORE_ASSERT(!result, "failed to create window surface! {0}", result);
 	}
 
 	void VulkanContext::CreateSwapChain()
 	{
-		SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(g_VulkanContext->PhysicalDevice);
+		SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(g_vkContext->PhysicalDevice);
 
 		VkSurfaceFormatKHR surfaceFormat = ChooseSwapSurfaceFormat(swapChainSupport.formats);
 		VkPresentModeKHR presentMode = ChooseSwapPresentMode(swapChainSupport.presentModes);
@@ -207,7 +252,7 @@ namespace Hazel {
 
 		VkSwapchainCreateInfoKHR createInfo = {};
 		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-		createInfo.surface = g_VulkanContext->Surface;
+		createInfo.surface = g_vkContext->Surface;
 		createInfo.minImageCount = imageCount;
 		createInfo.imageFormat = surfaceFormat.format;
 		createInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -215,7 +260,7 @@ namespace Hazel {
 		createInfo.imageArrayLayers = 1;
 		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-		QueueFamilyIndices indices = FindQueueFamilies(g_VulkanContext->PhysicalDevice);
+		QueueFamilyIndices indices = FindQueueFamilies(g_vkContext->PhysicalDevice);
 		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
 
 		if (indices.graphicsFamily != indices.presentFamily) {
@@ -234,27 +279,27 @@ namespace Hazel {
 		createInfo.presentMode = presentMode;
 		createInfo.clipped = VK_TRUE;
 		createInfo.oldSwapchain = VK_NULL_HANDLE;
-		VkResult result = vkCreateSwapchainKHR(g_VulkanContext->Device, &createInfo, nullptr, &g_VulkanContext->SwapChain);
+		VkResult result = vkCreateSwapchainKHR(g_vkContext->Device, &createInfo, nullptr, &g_vkContext->SwapChain);
 		HZ_CORE_ASSERT(!result, "failed to create swap chain! {0}", result);
 
-		vkGetSwapchainImagesKHR(g_VulkanContext->Device, g_VulkanContext->SwapChain, &imageCount, nullptr);
-		g_VulkanContext->SwapChainImages.resize(imageCount);
-		vkGetSwapchainImagesKHR(g_VulkanContext->Device, g_VulkanContext->SwapChain, &imageCount, g_VulkanContext->SwapChainImages.data());
+		vkGetSwapchainImagesKHR(g_vkContext->Device, g_vkContext->SwapChain, &imageCount, nullptr);
+		g_vkContext->SwapChainImages.resize(imageCount);
+		vkGetSwapchainImagesKHR(g_vkContext->Device, g_vkContext->SwapChain, &imageCount, g_vkContext->SwapChainImages.data());
 
-		g_VulkanContext->SwapChainImageFormat = surfaceFormat.format;
-		g_VulkanContext->SwapChainExtent = extent;
+		g_vkContext->SwapChainImageFormat = surfaceFormat.format;
+		g_vkContext->SwapChainExtent = extent;
 	}
 
 	void VulkanContext::CreateImageViews()
 	{
-		g_VulkanContext->SwapChainImageViews.resize(g_VulkanContext->SwapChainImages.size());
+		g_vkContext->SwapChainImageViews.resize(g_vkContext->SwapChainImages.size());
 
-		for (size_t i = 0; i < g_VulkanContext->SwapChainImages.size(); i++) {
+		for (size_t i = 0; i < g_vkContext->SwapChainImages.size(); i++) {
 			VkImageViewCreateInfo createInfo = {};
 			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			createInfo.image = g_VulkanContext->SwapChainImages[i];
+			createInfo.image = g_vkContext->SwapChainImages[i];
 			createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			createInfo.format = g_VulkanContext->SwapChainImageFormat;
+			createInfo.format = g_vkContext->SwapChainImageFormat;
 			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -265,7 +310,7 @@ namespace Hazel {
 			createInfo.subresourceRange.baseArrayLayer = 0;
 			createInfo.subresourceRange.layerCount = 1;
 
-			VkResult result = vkCreateImageView(g_VulkanContext->Device, &createInfo, nullptr, &g_VulkanContext->SwapChainImageViews[i]);
+			VkResult result = vkCreateImageView(g_vkContext->Device, &createInfo, nullptr, &g_vkContext->SwapChainImageViews[i]);
 			HZ_CORE_ASSERT(!result, "failed to create image views! {0}", result);
 		}
 	}
@@ -273,7 +318,7 @@ namespace Hazel {
 	void VulkanContext::CreateRenderPass()
 	{
 		VkAttachmentDescription colorAttachment = {};
-		colorAttachment.format = g_VulkanContext->SwapChainImageFormat;
+		colorAttachment.format = g_vkContext->SwapChainImageFormat;
 		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -308,7 +353,7 @@ namespace Hazel {
 		renderPassInfo.dependencyCount = 1;
 		renderPassInfo.pDependencies = &dependency;
 
-		VkResult result = vkCreateRenderPass(g_VulkanContext->Device, &renderPassInfo, nullptr, &g_VulkanContext->RenderPass);
+		VkResult result = vkCreateRenderPass(g_vkContext->Device, &renderPassInfo, nullptr, &g_vkContext->RenderPass);
 		HZ_CORE_ASSERT(!result, "failed to create render pass!");
 	}
 
@@ -336,10 +381,14 @@ namespace Hazel {
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertexInputInfo.vertexBindingDescriptionCount = 0;
-		vertexInputInfo.pVertexBindingDescriptions = nullptr; // Optional
-		vertexInputInfo.vertexAttributeDescriptionCount = 0;
-		vertexInputInfo.pVertexAttributeDescriptions = nullptr; // Optional
+
+		auto bindingDescription = VulkanRendererAPI::Vertex::GetBindingDescription();
+		auto attributeDescriptions = VulkanRendererAPI::Vertex::GetAttributeDescriptions();
+
+		vertexInputInfo.vertexBindingDescriptionCount = 1;
+		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -349,14 +398,14 @@ namespace Hazel {
 		VkViewport viewport = {};
 		viewport.x = 0.0f;
 		viewport.y = 0.0f;
-		viewport.width = (float)g_VulkanContext->SwapChainExtent.width;
-		viewport.height = (float)g_VulkanContext->SwapChainExtent.height;
+		viewport.width = (float)g_vkContext->SwapChainExtent.width;
+		viewport.height = (float)g_vkContext->SwapChainExtent.height;
 		viewport.minDepth = 0.0f;
 		viewport.maxDepth = 1.0f;
 
 		VkRect2D scissor = {};
 		scissor.offset = { 0, 0 };
-		scissor.extent = g_VulkanContext->SwapChainExtent;
+		scissor.extent = g_vkContext->SwapChainExtent;
 
 		VkPipelineViewportStateCreateInfo viewportState = {};
 		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -415,7 +464,7 @@ namespace Hazel {
 		pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
 		pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
 
-		VkResult result = vkCreatePipelineLayout(g_VulkanContext->Device, &pipelineLayoutInfo, nullptr, &g_VulkanContext->PipelineLayout);
+		VkResult result = vkCreatePipelineLayout(g_vkContext->Device, &pipelineLayoutInfo, nullptr, &g_vkContext->PipelineLayout);
 		HZ_CORE_ASSERT(!result, "failed to create pipeline layout!");
 
 		VkGraphicsPipelineCreateInfo pipelineInfo = {};
@@ -430,105 +479,114 @@ namespace Hazel {
 		pipelineInfo.pDepthStencilState = nullptr; // Optional
 		pipelineInfo.pColorBlendState = &colorBlending;
 		pipelineInfo.pDynamicState = nullptr; // Optional
-		pipelineInfo.layout = g_VulkanContext->PipelineLayout;
-		pipelineInfo.renderPass = g_VulkanContext->RenderPass;
+		pipelineInfo.layout = g_vkContext->PipelineLayout;
+		pipelineInfo.renderPass = g_vkContext->RenderPass;
 		pipelineInfo.subpass = 0;
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
 		pipelineInfo.basePipelineIndex = -1; // Optional
 
-		result = vkCreateGraphicsPipelines(g_VulkanContext->Device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &g_VulkanContext->GraphicsPipeline);
+		result = vkCreateGraphicsPipelines(g_vkContext->Device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &g_vkContext->GraphicsPipeline);
 		HZ_CORE_ASSERT(!result, "Failed to create graphics pipeline!");
 
-		vkDestroyShaderModule(g_VulkanContext->Device, fragShaderModule, nullptr);
-		vkDestroyShaderModule(g_VulkanContext->Device, vertShaderModule, nullptr);
+		vkDestroyShaderModule(g_vkContext->Device, fragShaderModule, nullptr);
+		vkDestroyShaderModule(g_vkContext->Device, vertShaderModule, nullptr);
 	}
 
 	void VulkanContext::CreateFramebuffers()
 	{
-		g_VulkanContext->SwapChainFramebuffers.resize(g_VulkanContext->SwapChainImageViews.size());
-		for (size_t i = 0; i < g_VulkanContext->SwapChainImageViews.size(); i++) {
+		g_vkContext->SwapChainFramebuffers.resize(g_vkContext->SwapChainImageViews.size());
+		for (size_t i = 0; i < g_vkContext->SwapChainImageViews.size(); i++) {
 			VkImageView attachments[] = {
-				g_VulkanContext->SwapChainImageViews[i]
+				g_vkContext->SwapChainImageViews[i]
 			};
 
 			VkFramebufferCreateInfo framebufferInfo = {};
 			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-			framebufferInfo.renderPass = g_VulkanContext->RenderPass;
+			framebufferInfo.renderPass = g_vkContext->RenderPass;
 			framebufferInfo.attachmentCount = 1;
 			framebufferInfo.pAttachments = attachments;
-			framebufferInfo.width = g_VulkanContext->SwapChainExtent.width;
-			framebufferInfo.height = g_VulkanContext->SwapChainExtent.height;
+			framebufferInfo.width = g_vkContext->SwapChainExtent.width;
+			framebufferInfo.height = g_vkContext->SwapChainExtent.height;
 			framebufferInfo.layers = 1;
 
-			VkResult result = vkCreateFramebuffer(g_VulkanContext->Device, &framebufferInfo, nullptr, &g_VulkanContext->SwapChainFramebuffers[i]);
+			VkResult result = vkCreateFramebuffer(g_vkContext->Device, &framebufferInfo, nullptr, &g_vkContext->SwapChainFramebuffers[i]);
 			HZ_CORE_ASSERT(!result, "failed to create framebuffer!");
 		}
 	}
 
 	void VulkanContext::CreateCommandPool()
 	{
-		QueueFamilyIndices queueFamilyIndices = FindQueueFamilies(g_VulkanContext->PhysicalDevice);
+		QueueFamilyIndices queueFamilyIndices = FindQueueFamilies(g_vkContext->PhysicalDevice);
 
 		VkCommandPoolCreateInfo poolInfo = {};
 		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 		poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
-		poolInfo.flags = 0; // Optional
+		poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-		VkResult result = vkCreateCommandPool(g_VulkanContext->Device, &poolInfo, nullptr, &g_VulkanContext->CommandPool);
+		VkResult result = vkCreateCommandPool(g_vkContext->Device, &poolInfo, nullptr, &g_vkContext->CommandPool);
 		HZ_CORE_ASSERT(!result, "failed to create command pool!");
+	}
+
+	void VulkanContext::CreateVertexBuffer()
+	{
+		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		void* data;
+		vkMapMemory(g_vkContext->Device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, vertices.data(), (size_t)bufferSize);
+		vkUnmapMemory(g_vkContext->Device, stagingBufferMemory);
+
+		CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, g_vkContext->VertexBuffer, g_vkContext->VertexBufferMemory);
+
+		CopyBuffer(stagingBuffer, g_vkContext->VertexBuffer, bufferSize);
+
+		vkDestroyBuffer(g_vkContext->Device, stagingBuffer, nullptr);
+		vkFreeMemory(g_vkContext->Device, stagingBufferMemory, nullptr);
+	}
+
+	void VulkanContext::CreateIndexBuffer()
+	{
+		VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingBufferMemory;
+		CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+		void* data;
+		vkMapMemory(g_vkContext->Device, stagingBufferMemory, 0, bufferSize, 0, &data);
+		memcpy(data, indices.data(), (size_t)bufferSize);
+		vkUnmapMemory(g_vkContext->Device, stagingBufferMemory);
+
+		CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, g_vkContext->IndexBuffer, g_vkContext->IndexBufferMemory);
+
+		CopyBuffer(stagingBuffer, g_vkContext->IndexBuffer, bufferSize);
+
+		vkDestroyBuffer(g_vkContext->Device, stagingBuffer, nullptr);
+		vkFreeMemory(g_vkContext->Device, stagingBufferMemory, nullptr);
 	}
 
 	void VulkanContext::CreateCommandBuffers()
 	{
-		g_VulkanContext->CommandBuffers.resize(g_VulkanContext->SwapChainFramebuffers.size());
+		g_vkContext->CommandBuffers.resize(g_vkContext->SwapChainFramebuffers.size());
 
 		VkCommandBufferAllocateInfo allocInfo = {};
 		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		allocInfo.commandPool = g_VulkanContext->CommandPool;
+		allocInfo.commandPool = g_vkContext->CommandPool;
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		allocInfo.commandBufferCount = (uint32_t)g_VulkanContext->CommandBuffers.size();
+		allocInfo.commandBufferCount = (uint32_t)g_vkContext->CommandBuffers.size();
 
-		VkResult result = vkAllocateCommandBuffers(g_VulkanContext->Device, &allocInfo, g_VulkanContext->CommandBuffers.data());
+		VkResult result = vkAllocateCommandBuffers(g_vkContext->Device, &allocInfo, g_vkContext->CommandBuffers.data());
 		HZ_CORE_ASSERT(!result, "failed to allocate command buffers!");
-
-		for (size_t i = 0; i < g_VulkanContext->CommandBuffers.size(); i++) {
-			VkCommandBufferBeginInfo beginInfo = {};
-			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-			beginInfo.flags = 0; // Optional
-			beginInfo.pInheritanceInfo = nullptr; // Optional
-
-			result = vkBeginCommandBuffer(g_VulkanContext->CommandBuffers[i], &beginInfo);
-			HZ_CORE_ASSERT(!result, "failed to begin recording command buffer!");
-			
-			VkRenderPassBeginInfo renderPassInfo = {};
-			renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			renderPassInfo.renderPass = g_VulkanContext->RenderPass;
-			renderPassInfo.framebuffer = g_VulkanContext->SwapChainFramebuffers[i];
-			renderPassInfo.renderArea.offset = { 0, 0 };
-			renderPassInfo.renderArea.extent = g_VulkanContext->SwapChainExtent;
-
-			VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-			renderPassInfo.clearValueCount = 1;
-			renderPassInfo.pClearValues = &clearColor;
-
-			vkCmdBeginRenderPass(g_VulkanContext->CommandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-			vkCmdBindPipeline(g_VulkanContext->CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, g_VulkanContext->GraphicsPipeline);
-
-			vkCmdDraw(g_VulkanContext->CommandBuffers[i], 3, 1, 0, 0);
-
-			vkCmdEndRenderPass(g_VulkanContext->CommandBuffers[i]);
-
-			result = vkEndCommandBuffer(g_VulkanContext->CommandBuffers[i]);
-			HZ_CORE_ASSERT(!result, "failed to record command buffer!");
-		}
 	}
 
 	void VulkanContext::CreateSyncObjects()
 	{
-		g_VulkanContext->ImageAvailableSemaphores.resize(VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT);
-		g_VulkanContext->RenderFinishedSemaphores.resize(VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT);
-		g_VulkanContext->InFlightFences.resize(VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT);
+		g_vkContext->ImageAvailableSemaphores.resize(VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT);
+		g_vkContext->RenderFinishedSemaphores.resize(VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT);
+		g_vkContext->InFlightFences.resize(VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT);
 
 		VkSemaphoreCreateInfo semaphoreInfo = {};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -539,39 +597,39 @@ namespace Hazel {
 		
 		for (size_t i = 0; i < VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			VkResult result = vkCreateSemaphore(g_VulkanContext->Device, &semaphoreInfo, nullptr, &g_VulkanContext->ImageAvailableSemaphores[i]);
+			VkResult result = vkCreateSemaphore(g_vkContext->Device, &semaphoreInfo, nullptr, &g_vkContext->ImageAvailableSemaphores[i]);
 			HZ_CORE_ASSERT(!result, "Failed to create semaphores");
 
-			result = vkCreateSemaphore(g_VulkanContext->Device, &semaphoreInfo, nullptr, &g_VulkanContext->RenderFinishedSemaphores[i]);
+			result = vkCreateSemaphore(g_vkContext->Device, &semaphoreInfo, nullptr, &g_vkContext->RenderFinishedSemaphores[i]);
 			HZ_CORE_ASSERT(!result, "Failed to create semaphores");
 
-			result = vkCreateFence(g_VulkanContext->Device, &fenceInfo, nullptr, &g_VulkanContext->InFlightFences[i]);
+			result = vkCreateFence(g_vkContext->Device, &fenceInfo, nullptr, &g_vkContext->InFlightFences[i]);
 			HZ_CORE_ASSERT(!result, "Failed to create fences");
 		}
 	}
 
 	void VulkanContext::CleanupSwapChain()
 	{
-		for (auto framebuffer : g_VulkanContext->SwapChainFramebuffers) {
-			vkDestroyFramebuffer(g_VulkanContext->Device, framebuffer, nullptr);
+		for (auto framebuffer : g_vkContext->SwapChainFramebuffers) {
+			vkDestroyFramebuffer(g_vkContext->Device, framebuffer, nullptr);
 		}
 
-		vkFreeCommandBuffers(g_VulkanContext->Device, g_VulkanContext->CommandPool, static_cast<uint32_t>(g_VulkanContext->CommandBuffers.size()), g_VulkanContext->CommandBuffers.data());
+		vkFreeCommandBuffers(g_vkContext->Device, g_vkContext->CommandPool, static_cast<uint32_t>(g_vkContext->CommandBuffers.size()), g_vkContext->CommandBuffers.data());
 
-		vkDestroyPipeline(g_VulkanContext->Device, g_VulkanContext->GraphicsPipeline, nullptr);
-		vkDestroyPipelineLayout(g_VulkanContext->Device, g_VulkanContext->PipelineLayout, nullptr);
-		vkDestroyRenderPass(g_VulkanContext->Device, g_VulkanContext->RenderPass, nullptr);
+		vkDestroyPipeline(g_vkContext->Device, g_vkContext->GraphicsPipeline, nullptr);
+		vkDestroyPipelineLayout(g_vkContext->Device, g_vkContext->PipelineLayout, nullptr);
+		vkDestroyRenderPass(g_vkContext->Device, g_vkContext->RenderPass, nullptr);
 
-		for (auto imageView : g_VulkanContext->SwapChainImageViews) {
-			vkDestroyImageView(g_VulkanContext->Device, imageView, nullptr);
+		for (auto imageView : g_vkContext->SwapChainImageViews) {
+			vkDestroyImageView(g_vkContext->Device, imageView, nullptr);
 		}
 
-		vkDestroySwapchainKHR(g_VulkanContext->Device, g_VulkanContext->SwapChain, nullptr);
+		vkDestroySwapchainKHR(g_vkContext->Device, g_vkContext->SwapChain, nullptr);
 	}
 
 	void VulkanContext::RecreateSwapChain()
 	{
-		vkDeviceWaitIdle(g_VulkanContext->Device);
+		vkDeviceWaitIdle(g_vkContext->Device);
 
 		CleanupSwapChain();
 
@@ -601,7 +659,7 @@ namespace Hazel {
 			}
 
 			VkBool32 presentSupport = false;
-			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, g_VulkanContext->Surface, &presentSupport);
+			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, g_vkContext->Surface, &presentSupport);
 
 			if (queueFamily.queueCount > 0 && presentSupport) {
 				indices.presentFamily = i;
@@ -727,22 +785,22 @@ namespace Hazel {
 	{
 		SwapChainSupportDetails details;
 
-		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, g_VulkanContext->Surface, &details.capabilities);
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, g_vkContext->Surface, &details.capabilities);
 
 		uint32_t formatCount;
-		vkGetPhysicalDeviceSurfaceFormatsKHR(device, g_VulkanContext->Surface, &formatCount, nullptr);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, g_vkContext->Surface, &formatCount, nullptr);
 
 		if (formatCount != 0) {
 			details.formats.resize(formatCount);
-			vkGetPhysicalDeviceSurfaceFormatsKHR(device, g_VulkanContext->Surface, &formatCount, details.formats.data());
+			vkGetPhysicalDeviceSurfaceFormatsKHR(device, g_vkContext->Surface, &formatCount, details.formats.data());
 		}
 
 		uint32_t presentModeCount;
-		vkGetPhysicalDeviceSurfacePresentModesKHR(device, g_VulkanContext->Surface, &presentModeCount, nullptr);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, g_vkContext->Surface, &presentModeCount, nullptr);
 
 		if (presentModeCount != 0) {
 			details.presentModes.resize(presentModeCount);
-			vkGetPhysicalDeviceSurfacePresentModesKHR(device, g_VulkanContext->Surface, &presentModeCount, details.presentModes.data());
+			vkGetPhysicalDeviceSurfacePresentModesKHR(device, g_vkContext->Surface, &presentModeCount, details.presentModes.data());
 		}
 
 		return details;
@@ -805,46 +863,122 @@ namespace Hazel {
 
 		VkShaderModule shaderModule;
 
-		VkResult result = vkCreateShaderModule(g_VulkanContext->Device, &createInfo, nullptr, &shaderModule);
+		VkResult result = vkCreateShaderModule(g_vkContext->Device, &createInfo, nullptr, &shaderModule);
 		HZ_CORE_ASSERT(!result, "failed to create shader module!");
 
 		return shaderModule;
 	}
 
+	uint32_t VulkanContext::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
+	{
+		VkPhysicalDeviceMemoryProperties memProperties;
+		vkGetPhysicalDeviceMemoryProperties(g_vkContext->PhysicalDevice, &memProperties);
+
+		for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+			if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+				return i;
+			}
+		}
+
+		HZ_CORE_ASSERT(false, "failed to find suitable memory type!");
+
+	}
+
+	void VulkanContext::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer & buffer, VkDeviceMemory & bufferMemory)
+	{
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = size;
+		bufferInfo.usage = usage;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VkResult result = vkCreateBuffer(g_vkContext->Device, &bufferInfo, nullptr, &buffer);
+		HZ_CORE_ASSERT(!result, "failed to create vertex buffer!");
+
+		VkMemoryRequirements memRequirements;
+		vkGetBufferMemoryRequirements(g_vkContext->Device, buffer, &memRequirements);
+
+		VkMemoryAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memRequirements.size;
+		allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, properties);
+
+		result = vkAllocateMemory(g_vkContext->Device, &allocInfo, nullptr, &bufferMemory);
+		HZ_CORE_ASSERT(!result, "failed to create vertex buffer!");
+
+		vkBindBufferMemory(g_vkContext->Device, buffer, bufferMemory, 0);
+	}
+
+	void VulkanContext::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+	{
+		VkCommandBufferAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		allocInfo.commandPool = g_vkContext->CommandPool;
+		allocInfo.commandBufferCount = 1;
+
+		VkCommandBuffer commandBuffer;
+		vkAllocateCommandBuffers(g_vkContext->Device, &allocInfo, &commandBuffer);
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+		VkBufferCopy copyRegion = {};
+		copyRegion.srcOffset = 0; // Optional
+		copyRegion.dstOffset = 0; // Optional
+		copyRegion.size = size;
+		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+		vkEndCommandBuffer(commandBuffer);
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &commandBuffer;
+
+		vkQueueSubmit(g_vkContext->GraphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(g_vkContext->GraphicsQueue);
+
+		vkFreeCommandBuffers(g_vkContext->Device, g_vkContext->CommandPool, 1, &commandBuffer);
+	}
+
 	void VulkanContext::SwapBuffers()
 	{
-		vkWaitForFences(g_VulkanContext->Device, 1, &g_VulkanContext->InFlightFences[g_VulkanContext->CurrentFrame], VK_TRUE, UINT64_MAX);
+		VkCommandBuffer currentCommandBuffer = g_vkContext->CommandBuffers[g_vkContext->CurrentFrame];
+		VkBuffer vertexBuffers[] = { g_vkContext->VertexBuffer };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(currentCommandBuffer, 0, 1, vertexBuffers, offsets);
+		
+		vkCmdBindIndexBuffer(currentCommandBuffer, g_vkContext->IndexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
-		uint32_t imageIndex;
-		VkResult result = vkAcquireNextImageKHR(g_VulkanContext->Device, g_VulkanContext->SwapChain, UINT64_MAX, g_VulkanContext->ImageAvailableSemaphores[g_VulkanContext->CurrentFrame], VK_NULL_HANDLE, &imageIndex);
+		vkCmdDrawIndexed(currentCommandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
-		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-			RecreateSwapChain();
-			return;
-		}
-		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-			throw std::runtime_error("failed to acquire swap chain image!");
-		}
+		vkCmdEndRenderPass(currentCommandBuffer);
+
+		VkResult result = vkEndCommandBuffer(currentCommandBuffer);
+		HZ_CORE_ASSERT(!result, "failed to record command buffer!");
 
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-		VkSemaphore waitSemaphores[] = { g_VulkanContext->ImageAvailableSemaphores[g_VulkanContext->CurrentFrame] };
+		VkSemaphore waitSemaphores[] = { g_vkContext->ImageAvailableSemaphores[g_vkContext->CurrentFrame] };
 		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 		submitInfo.waitSemaphoreCount = 1;
 		submitInfo.pWaitSemaphores = waitSemaphores;
 		submitInfo.pWaitDstStageMask = waitStages;
 
 		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &g_VulkanContext->CommandBuffers[imageIndex];
+		submitInfo.pCommandBuffers = &currentCommandBuffer;
 
-		VkSemaphore signalSemaphores[] = { g_VulkanContext->RenderFinishedSemaphores[g_VulkanContext->CurrentFrame] };
+		VkSemaphore signalSemaphores[] = { g_vkContext->RenderFinishedSemaphores[g_vkContext->CurrentFrame] };
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
-		vkResetFences(g_VulkanContext->Device, 1, &g_VulkanContext->InFlightFences[g_VulkanContext->CurrentFrame]);
+		vkResetFences(g_vkContext->Device, 1, &g_vkContext->InFlightFences[g_vkContext->CurrentFrame]);
 
-		if (vkQueueSubmit(g_VulkanContext->GraphicsQueue, 1, &submitInfo, g_VulkanContext->InFlightFences[g_VulkanContext->CurrentFrame]) != VK_SUCCESS) {
+		if (vkQueueSubmit(g_vkContext->GraphicsQueue, 1, &submitInfo, g_vkContext->InFlightFences[g_vkContext->CurrentFrame]) != VK_SUCCESS) {
 			throw std::runtime_error("failed to submit draw command buffer!");
 		}
 
@@ -854,23 +988,23 @@ namespace Hazel {
 		presentInfo.waitSemaphoreCount = 1;
 		presentInfo.pWaitSemaphores = signalSemaphores;
 
-		VkSwapchainKHR swapChains[] = { g_VulkanContext->SwapChain };
+		VkSwapchainKHR swapChains[] = { g_vkContext->SwapChain };
 		presentInfo.swapchainCount = 1;
 		presentInfo.pSwapchains = swapChains;
 
-		presentInfo.pImageIndices = &imageIndex;
+		presentInfo.pImageIndices = &(g_vkContext->CurrentImageIndex);
 
-		result = vkQueuePresentKHR(g_VulkanContext->PresentQueue, &presentInfo);
+		result = vkQueuePresentKHR(g_vkContext->PresentQueue, &presentInfo);
 
-		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || g_VulkanContext->FramebufferResized) {
-			g_VulkanContext->FramebufferResized = false;
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || g_vkContext->FramebufferResized) {
+			g_vkContext->FramebufferResized = false;
 			RecreateSwapChain();
 		}
 		else if (result != VK_SUCCESS) {
 			throw std::runtime_error("failed to present swap chain image!");
 		}
 
-		g_VulkanContext->CurrentFrame = (g_VulkanContext->CurrentFrame + 1) % VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT;
+		g_vkContext->CurrentFrame = (g_vkContext->CurrentFrame + 1) % VulkanRendererAPI::MAX_FRAMES_IN_FLIGHT;
 	}
 
 	void VulkanContext::SetVSync(bool enabled)
